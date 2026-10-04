@@ -1,0 +1,28 @@
+# Bağımlılıklar
+node_modules/
+
+# Gizli ayarlar
+.env
+.env.*
+!.env.example
+
+# Python / işleyici
+worker/.venv/
+worker/triposr/
+worker/downloads/
+__pycache__/
+*.py[cod]
+
+# Üretilen dosyalar
+data/
+*.glb
+!docs/**/*.glb
+output/
+
+# Sistem / editör
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+*.log

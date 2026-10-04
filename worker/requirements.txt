@@ -1,0 +1,15 @@
+# PyTorch ayrıca kurulur (CUDA sürümü için setup.ps1'e bakın)
+einops==0.7.0
+huggingface-hub==0.17.3
+imageio==2.38.0
+moderngl==5.12.0
+numpy==1.26.4
+omegaconf==2.3.0
+onnxruntime==1.30.0
+pillow==12.3.0
+PyMCubes==0.1.6
+rembg==2.0.69
+requests==2.34.2
+transformers==4.35.0
+trimesh==4.0.5
+xatlas==0.0.11

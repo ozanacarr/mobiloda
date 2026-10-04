@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Mobiloda — Odanda Gör</title>
+  <link rel="stylesheet" href="/style.css">
+  <script type="importmap">
+    { "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
+    } }
+  </script>
+</head>
+<body>
+  <header class="top">
+    <div class="wrap">
+      <a class="brand" href="/">mobil<span>oda</span></a>
+      <a class="btn primary" href="/add">+ Ürün ekle</a>
+    </div>
+  </header>
+
+  <section class="hero">
+    <canvas id="stage"></canvas>
+    <div class="hero-label" id="label"></div>
+    <div class="hero-text">
+      <div class="wrap">
+        <h1>Almadan önce odanda gör.</h1>
+        <p>Fotoğrafını ve ölçülerini gir, mobilya gerçek boyutunda 3D olsun. Telefonunun kamerasıyla zemine yerleştir.</p>
+      </div>
+    </div>
+  </section>
+
+  <main class="wrap">
+    <div class="section-head">
+      <h2>Ürünler</h2>
+      <span class="hint" id="count"></span>
+    </div>
+    <div class="grid" id="grid"></div>
+  </main>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+    import { listProducts, modelUrl, imageUrl, STATUS, esc, dimsText, sb } from '/app.js';
+
+    // ---------- Ürün kartları ----------
+    const grid = document.getElementById('grid');
+    function renderGrid(products) {
+      document.getElementById('count').textContent = products.length ? `${products.length} ürün` : '';
+      if (!products.length) {
+        grid.innerHTML = `<div class="empty">Henüz ürün yok.<br><br><a class="btn primary" href="/add">İlk ürünü ekle</a></div>`;
+        return;
+      }
+      grid.innerHTML = products.map((p) => `
+        <a class="card" href="/product?id=${p.id}">
+          <div class="thumb">
+            ${p.image_path ? `<img src="${esc(imageUrl(p))}" alt="" loading="lazy">` : ''}
+            <span class="badge ${p.status}">${STATUS[p.status]}</span>
+          </div>
+          <div class="body"><h3>${esc(p.name)}</h3><div class="dims">${dimsText(p)}</div></div>
+        </a>`).join('');
+    }
+
+    // ---------- 3D vitrin ----------
+    const canvas = document.getElementById('stage');
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+
+    const scene = new THREE.Scene();
+    scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture;
+    scene.background = new THREE.Color(0xf4efe8);
+    scene.fog = new THREE.Fog(0xf4efe8, 9, 20);
+
+    const camera = new THREE.PerspectiveCamera(38, 1, 0.05, 50);
+    camera.position.set(0, 2.2, 6);
+
+    const controls = new OrbitControls(camera, canvas);
+    controls.enableDamping = true;
+    controls.enablePan = false;
+    controls.enableZoom = false;
+    controls.autoRotate = true;
+    controls.autoRotateSpeed = 0.6;
+    controls.minPolarAngle = 0.6;
+    controls.maxPolarAngle = 1.35;
+    controls.target.set(0, 0.5, 0);
+
+    const sun = new THREE.DirectionalLight(0xfff4e6, 2.2);
+    sun.position.set(3, 6, 4);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(1024, 1024);
+    Object.assign(sun.shadow.camera, { left: -5, right: 5, top: 5, bottom: -5 });
+    scene.add(sun, new THREE.HemisphereLight(0xffffff, 0xd9cbb8, 0.6));
+
+    // Zemin: ahşap tonlu yuvarlak podyum
+    const floor = new THREE.Mesh(
+      new THREE.CircleGeometry(30, 64),
+      new THREE.MeshStandardMaterial({ color: 0xeee6db, roughness: 1 }),
+    );
+    floor.rotation.x = -Math.PI / 2;
+    floor.receiveShadow = true;
+    const stageDisk = new THREE.Mesh(
+      new THREE.CylinderGeometry(3.4, 3.5, 0.08, 96),
+      new THREE.MeshStandardMaterial({ color: 0xd8c3a5, roughness: 0.6 }),
+    );
+    stageDisk.position.y = 0.04;
+    stageDisk.receiveShadow = true;
+    scene.add(floor, stageDisk);
+
+    const turntable = new THREE.Group();
+    turntable.position.y = 0.08;
+    scene.add(turntable);
+
+    // Henüz model yoksa gösterilecek örnek mobilyalar
+    function demoFurniture() {
+      const g = new THREE.Group();
+      const m = (c, r = 0.7) => new THREE.MeshStandardMaterial({ color: c, roughness: r });
+      const box = (w, h, d, mat, x, y, z) => {
+        const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+        b.position.set(x, y, z); b.castShadow = b.receiveShadow = true; g.add(b); return b;
+      };
+      const fabric = m(0x5f7a6b, 0.95), wood = m(0x8a5a3b, 0.5), cream = m(0xf2e8da, 0.9);
+      // Koltuk
+      box(2.0, 0.42, 0.9, fabric, -0.6, 0.21, -0.6);
+      box(2.0, 0.5, 0.2, fabric, -0.6, 0.67, -0.95);
+      box(0.2, 0.62, 0.9, fabric, -1.5, 0.31, -0.6);
+      box(0.2, 0.62, 0.9, fabric, 0.3, 0.31, -0.6);
+      box(0.85, 0.12, 0.7, cream, -1.0, 0.48, -0.55);
+      box(0.85, 0.12, 0.7, cream, -0.2, 0.48, -0.55);
+      // Sehpa
+      const top = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 0.05, 48), wood);
+      top.position.set(-0.6, 0.42, 0.55); top.castShadow = true; g.add(top);
+      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.08, 0.4, 16), wood);
+      leg.position.set(-0.6, 0.2, 0.55); leg.castShadow = true; g.add(leg);
+      // Lambader
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 1.5, 12), m(0x222222, 0.3));
+      pole.position.set(1.3, 0.75, -0.5); pole.castShadow = true; g.add(pole);
+      const shade = new THREE.Mesh(new THREE.ConeGeometry(0.25, 0.32, 32, 1, true), m(0xf6eddc, 0.9));
+      shade.position.set(1.3, 1.55, -0.5); shade.material.side = THREE.DoubleSide; shade.castShadow = true; g.add(shade);
+      // Puf
+      const pouf = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.4, 32), m(0xb5562f, 0.9));
+      pouf.position.set(0.9, 0.2, 0.7); pouf.castShadow = true; g.add(pouf);
+      g.userData.label = 'Örnek oda — kendi ürününü ekle';
+      return g;
+    }
+
+    const pickables = [];
+    const loader = new GLTFLoader();
+    async function showProducts(products) {
+      turntable.clear();
+      pickables.length = 0;
+      const ready = products.filter((p) => p.status === 'ready' && p.model_path).slice(0, 8);
+      if (!ready.length) {
+        const demo = demoFurniture();
+        turntable.add(demo);
+        pickables.push(demo);
+        frame();
+        return;
+      }
+      const radius = ready.length === 1 ? 0 : Math.min(2.4, 0.9 + ready.length * 0.3);
+      const results = await Promise.allSettled(ready.map((p) => loader.loadAsync(modelUrl(p))));
+      results.forEach((r, i) => {
+        if (r.status !== 'fulfilled') return;
+        const p = ready[i];
+        const obj = r.value.scene;
+        obj.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+        // Modeller gerçek boyutta (metre); büyük ürünler vitrine sığsın diye küçültülür.
+        const size = new THREE.Box3().setFromObject(obj).getSize(new THREE.Vector3());
+        const fit = Math.min(1, 2.2 / Math.max(size.x, size.z, 0.01), 2 / Math.max(size.y, 0.01));
+        const holder = new THREE.Group();
+        holder.add(obj);
+        holder.scale.setScalar(fit);
+        const a = (i / ready.length) * Math.PI * 2;
+        holder.position.set(Math.sin(a) * radius, 0, Math.cos(a) * radius);
+        holder.rotation.y = a;
+        holder.userData = { id: p.id, label: `${p.name} · ${dimsText(p)}` };
+        turntable.add(holder);
+        pickables.push(holder);
+      });
+      if (!pickables.length) { const demo = demoFurniture(); turntable.add(demo); pickables.push(demo); }
+      frame();
+    }
+
+    // Kamerayı vitrindeki ürünlere göre yaklaştır/uzaklaştır
+    let viewRadius = 3;
+    function frame() {
+      const box = new THREE.Box3().setFromObject(turntable);
+      const sphere = box.getBoundingSphere(new THREE.Sphere());
+      viewRadius = Math.max(sphere.radius, 0.6);
+      // Hedefi biraz aşağı al ki ürün alttaki yazının üstünde kalsın
+      controls.target.set(0, Math.min(box.max.y * 0.4, 1) - viewRadius * 0.45, 0);
+      resize();
+    }
+
+    // Dokununca / üzerine gelince etiket, tıklayınca ürün sayfası
+    const ray = new THREE.Raycaster();
+    const label = document.getElementById('label');
+    let hovered = null;
+    function pick(ev) {
+      const r = canvas.getBoundingClientRect();
+      const v = new THREE.Vector2(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1);
+      ray.setFromCamera(v, camera);
+      const hit = ray.intersectObjects(pickables, true)[0];
+      if (!hit) return null;
+      let o = hit.object;
+      while (o && !pickables.includes(o)) o = o.parent;
+      return o;
+    }
+    function setHover(o) {
+      hovered = o;
+      label.textContent = o?.userData.label || '';
+      label.classList.toggle('show', Boolean(o));
+      canvas.style.cursor = o?.userData.id ? 'pointer' : '';
+    }
+    canvas.addEventListener('pointermove', (e) => { if (e.pointerType === 'mouse') setHover(pick(e)); });
+    let down = null;
+    canvas.addEventListener('pointerdown', (e) => { down = [e.clientX, e.clientY]; });
+    canvas.addEventListener('pointerup', (e) => {
+      if (!down || Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 6) return;
+      const o = pick(e);
+      if (o?.userData.id && (e.pointerType === 'mouse' || hovered === o)) location.href = `/product?id=${o.userData.id}`;
+      else setHover(o); // dokunmatikte ilk dokunuş etiketi gösterir, ikincisi açar
+    });
+
+    function resize() {
+      const { clientWidth: w, clientHeight: h } = canvas;
+      renderer.setSize(w, h, false);
+      camera.aspect = w / h;
+      // Görüş alanına sığacak uzaklık (dar ekranda yatay açı belirleyici)
+      const vFov = THREE.MathUtils.degToRad(camera.fov);
+      const hFov = 2 * Math.atan(Math.tan(vFov / 2) * camera.aspect);
+      const dist = (viewRadius * 1.25) / Math.sin(Math.min(vFov, hFov) / 2);
+      camera.position.sub(controls.target).setLength(Math.min(Math.max(dist, 2.5), 14)).add(controls.target);
+      camera.updateProjectionMatrix();
+    }
+    new ResizeObserver(resize).observe(canvas);
+    renderer.setAnimationLoop(() => { controls.update(); renderer.render(scene, camera); });
+
+    // ---------- Veri ----------
+    let lastReadyKey = '';
+    async function refresh() {
+      try {
+        const products = await listProducts();
+        renderGrid(products);
+        const key = products.filter((p) => p.status === 'ready').map((p) => p.model_path).join();
+        if (key !== lastReadyKey || !turntable.children.length) { lastReadyKey = key; showProducts(products); }
+      } catch (err) {
+        grid.innerHTML = `<div class="empty">Ürünler yüklenemedi: ${esc(err.message)}</div>`;
+        if (!turntable.children.length) showProducts([]);
+      }
+    }
+    refresh();
+    sb.channel('products').on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, refresh).subscribe();
+  </script>
+</body>
+</html>

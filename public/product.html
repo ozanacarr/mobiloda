@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Ürün — Mobiloda</title>
+  <link rel="stylesheet" href="/style.css">
+  <script type="module" src="https://cdn.jsdelivr.net/npm/@google/model-viewer@4.0.0/dist/model-viewer.min.js"></script>
+</head>
+<body>
+  <header class="top">
+    <div class="wrap">
+      <a class="brand" href="/">mobil<span>oda</span></a>
+      <a class="btn" href="/">← Ürünler</a>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <div class="product" id="root"><p class="hint">Yükleniyor…</p></div>
+  </main>
+
+  <script type="module">
+    import { sb, getProduct, modelUrl, imageUrl, updateDims, retry, deleteProduct, STATUS, esc, dimsText } from '/app.js';
+    const id = new URLSearchParams(location.search).get('id');
+    const root = document.getElementById('root');
+    let product = null;
+    let shownModel = null;
+
+    function viewerHtml(p) {
+      if (p.status === 'ready' && p.model_path) {
+        return `
+          <model-viewer id="mv" src="${esc(modelUrl(p))}" alt="${esc(p.name)}"
+            camera-controls touch-action="pan-y" auto-rotate shadow-intensity="1" exposure="1.05"
+            environment-image="neutral" ar ar-modes="webxr scene-viewer quick-look"
+            ar-scale="fixed" ar-placement="floor">
+            <button slot="ar-button" class="btn primary ar-btn">📱 Odamda gör</button>
+          </model-viewer>`;
+      }
+      const img = p.image_path ? `<img src="${esc(imageUrl(p))}" alt="">` : '';
+      if (p.status === 'failed') {
+        return `<div class="state">${img}<b style="color:var(--err)">Model üretilemedi</b><span class="hint">${esc(p.error || '')}</span></div>`;
+      }
+      return `<div class="state">${img}
+        <b>${p.status === 'pending' ? 'Sırada bekliyor…' : '3D model üretiliyor…'}</b>
+        <div class="bar"><div style="width:${p.progress || 3}%"></div></div>
+        <span class="hint">Genelde 1–2 dakika sürer. Bilgisayarınızdaki işleyici açık olmalı.</span></div>`;
+    }
+
+    function render(p) {
+      document.title = `${p.name} — Mobiloda`;
+      const modelKey = p.status === 'ready' ? p.model_path : p.status + (p.progress || 0);
+      // Model değişmediyse viewer'ı yeniden oluşturma (dönüş açısı korunsun)
+      const viewerChanged = modelKey !== shownModel;
+      shownModel = modelKey;
+      if (viewerChanged || !root.querySelector('.viewer')) {
+        root.innerHTML = `
+          <div class="viewer" id="viewer">${viewerHtml(p)}</div>
+          <div class="info panel" id="info"></div>`;
+      }
+      document.getElementById('info').innerHTML = `
+        <span class="badge ${p.status}">${STATUS[p.status]}</span>
+        <h1 style="margin-top:10px">${esc(p.name)}</h1>
+        <div class="dims">${dimsText(p)} <span class="hint">(G × D × Y)</span></div>
+        ${p.note ? `<p class="note">${esc(p.note)}</p>` : ''}
+        ${p.status === 'ready' ? `<div class="tip"><b>Nasıl kullanılır?</b> “Odamda gör”e dokunun, telefonu zemine doğru tutup biraz gezdirin. Mobilya gerçek boyutunda belirir; parmağınızla sürükleyip iki parmakla döndürebilirsiniz.</div>` : ''}
+        <details style="margin-top:16px">
+          <summary>Ölçüleri düzelt</summary>
+          <form id="dimForm">
+            <div class="row3">
+              <div><span class="hint">Genişlik</span><input type="number" name="width" value="${+p.width}" min="1" max="2000" step="0.1" required inputmode="decimal"></div>
+              <div><span class="hint">Derinlik</span><input type="number" name="depth" value="${+p.depth}" min="1" max="2000" step="0.1" required inputmode="decimal"></div>
+              <div><span class="hint">Yükseklik</span><input type="number" name="height" value="${+p.height}" min="1" max="2000" step="0.1" required inputmode="decimal"></div>
+            </div>
+            <button class="btn block" style="margin-top:10px">Kaydet ve yeniden ölçekle</button>
+          </form>
+        </details>
+        <div class="actions">
+          ${p.status === 'failed' ? `<button class="btn primary" id="retry">Tekrar dene</button>` : ''}
+          <button class="btn danger" id="del">Sil</button>
+        </div>`;
+
+      document.getElementById('dimForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const f = new FormData(e.target);
+        await guard(() => updateDims(p.id, { width: +f.get('width'), depth: +f.get('depth'), height: +f.get('height') }));
+      });
+      document.getElementById('retry')?.addEventListener('click', () => guard(() => retry(p.id)));
+      document.getElementById('del').addEventListener('click', async () => {
+        if (!confirm(`“${p.name}” silinsin mi?`)) return;
+        await guard(async () => { await deleteProduct(p); location.href = '/'; });
+      });
+    }
+
+    async function guard(fn) {
+      try { await fn(); await load(); } catch (err) { alert('İşlem başarısız: ' + err.message); }
+    }
+
+    async function load() {
+      try {
+        product = await getProduct(id);
+        if (!product) { root.innerHTML = `<div class="empty">Ürün bulunamadı. <a href="/">Ürünlere dön</a></div>`; return; }
+        render(product);
+      } catch (err) {
+        root.innerHTML = `<div class="empty">Yüklenemedi: ${esc(err.message)}</div>`;
+      }
+    }
+
+    load();
+    // Model hazır olunca sayfa kendiliğinden güncellenir
+    sb.channel('product-' + id)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'products', filter: `id=eq.${id}` }, load)
+      .subscribe();
+    setInterval(() => { if (product && product.status !== 'ready' && product.status !== 'failed') load(); }, 4000);
+  </script>
+</body>
+</html>

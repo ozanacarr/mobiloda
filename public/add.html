@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Ürün ekle — Mobiloda</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="wrap">
+      <a class="brand" href="/">mobil<span>oda</span></a>
+      <a class="btn" href="/">Vazgeç</a>
+    </div>
+  </header>
+
+  <main class="wrap" style="max-width:560px">
+    <h1 class="page-title">Yeni ürün</h1>
+    <form class="panel" id="form">
+      <div class="field">
+        <label>Fotoğraf <span class="hint">— ürün tek başına, önden-çaprazdan, sade arka planda en iyi sonucu verir</span></label>
+        <div class="drop" id="drop">
+          <input type="file" id="photo" accept="image/*">
+          <div id="dropText">📷<br><b>Fotoğraf seç veya çek</b><br><span class="hint">JPG, PNG, WEBP</span></div>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="name">Ürün adı</label>
+        <input type="text" id="name" required maxlength="120" placeholder="Örn. Üçlü kanepe">
+      </div>
+
+      <div class="field">
+        <label>Ölçüler (cm) <span class="hint">— model bu ölçülere göre gerçek boyuta getirilir</span></label>
+        <div class="row3">
+          <div><span class="hint">Genişlik</span><input type="number" id="width" required min="1" max="2000" step="0.1" inputmode="decimal"></div>
+          <div><span class="hint">Derinlik</span><input type="number" id="depth" required min="1" max="2000" step="0.1" inputmode="decimal"></div>
+          <div><span class="hint">Yükseklik</span><input type="number" id="height" required min="1" max="2000" step="0.1" inputmode="decimal"></div>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="note">Not <span class="hint">— isteğe bağlı (fiyat, renk, mağaza…)</span></label>
+        <textarea id="note" rows="2" maxlength="1000"></textarea>
+      </div>
+
+      <details class="field">
+        <summary>Elimde hazır 3D model (.glb) var</summary>
+        <div class="drop small">
+          <input type="file" id="glb" accept=".glb,model/gltf-binary">
+          <div id="glbText" class="hint">Üretici .glb veriyorsa yükleyin — fotoğraftan üretmekten daha kaliteli olur.</div>
+        </div>
+      </details>
+
+      <button class="btn primary block" id="submit">3D modeli oluştur</button>
+      <div class="msg" id="msg"></div>
+    </form>
+  </main>
+
+  <script type="module">
+    import { createProduct, esc } from '/app.js';
+    const $ = (id) => document.getElementById(id);
+
+    $('photo').addEventListener('change', () => {
+      const f = $('photo').files[0];
+      $('dropText').innerHTML = f ? `<img src="${URL.createObjectURL(f)}" alt=""><span class="hint">${esc(f.name)}</span>` : '';
+    });
+    $('glb').addEventListener('change', () => {
+      const f = $('glb').files[0];
+      if (f) $('glbText').textContent = `✓ ${f.name}`;
+    });
+
+    $('form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const photo = $('photo').files[0];
+      const glb = $('glb').files[0];
+      const msg = $('msg');
+      msg.className = 'msg';
+      if (!photo && !glb) { msg.className = 'msg err'; msg.textContent = 'Bir fotoğraf (veya .glb model) seçin.'; return; }
+      if (glb && !/\.glb$/i.test(glb.name)) { msg.className = 'msg err'; msg.textContent = 'Model dosyası .glb olmalı.'; return; }
+      $('submit').disabled = true;
+      msg.textContent = 'Yükleniyor…';
+      try {
+        const id = await createProduct({
+          name: $('name').value.trim(),
+          width: +$('width').value, depth: +$('depth').value, height: +$('height').value,
+          note: $('note').value.trim(), photo, glb,
+        });
+        location.href = `/product?id=${id}`;
+      } catch (err) {
+        msg.className = 'msg err';
+        msg.textContent = 'Kaydedilemedi: ' + err.message;
+        $('submit').disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
